@@ -98,8 +98,8 @@ public class MainActivity extends Activity {
                 }
             }
 
-            //Start playing the 44KHz stereo vorbis audio
-            vorbisPlayer.start(44100, 2);
+            //Start playing the vorbis audio
+            vorbisPlayer.start();
         }
     }
 

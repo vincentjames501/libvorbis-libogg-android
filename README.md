@@ -55,8 +55,7 @@ vorbisRecorder.start(...);
  * Decode from file
 <pre>
 VorbisPlayer vorbisPlayer = new VorbisPlayer(fileToPlay);
-//extract wave header information here, for example 44KHz stereo wav file
-vorbisPlayer.start(44100, 2);
+vorbisPlayer.start();
 </pre>  
 
  * To write to custom output, create a custom ```DecodeFeed```

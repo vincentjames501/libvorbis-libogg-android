@@ -227,11 +227,12 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_encoder_VorbisEncoder_startEncoding
       float **buffer=vorbis_analysis_buffer(&vd,READ);
 
       /* uninterleave samples */
-      for(i=0;i<bytes/4;i++){
-        buffer[0][i]=((readbuffer[i*4+1]<<8)|
-                      (0x00ff&(int)readbuffer[i*4]))/32768.f;
-        buffer[1][i]=((readbuffer[i*4+3]<<8)|
-                      (0x00ff&(int)readbuffer[i*4+2]))/32768.f;
+      int channel;
+      for(i=0;i<bytes/(2*channels);i++) {
+          for(channel = 0; channel < channels; channel++) {
+              buffer[channel][i]=((readbuffer[i*(2*channels)+(channel*2+1)]<<8)|
+                            (0x00ff&(int)readbuffer[i*(2*channels)+(channel*2)]))/32768.f;
+          }
       }
 
       /* tell the library how much we actually submitted */

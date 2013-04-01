@@ -196,12 +196,9 @@ public class VorbisPlayer implements Runnable {
 
     /**
      * Starts the audio recorder with a given sample rate and channels
-     *
-     * @param sampleRate the sample rate, must be greater than <code>0</code>
-     * @param channels   the number of channels (can only be <code>1</code> or <code>2</code>)
      */
     @SuppressWarnings("all")
-    public synchronized void start(int sampleRate, int channels) {
+    public synchronized void start() {
         if (isStopped()) {
             new Thread(this).start();
         }
