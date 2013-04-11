@@ -3,6 +3,8 @@ package org.xiph.vorbis.player;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+import android.os.*;
+import android.os.Process;
 import android.util.Log;
 import org.xiph.vorbis.decoder.DecodeException;
 import org.xiph.vorbis.decoder.DecodeFeed;
@@ -29,11 +31,32 @@ import java.util.concurrent.atomic.AtomicReference;
  * Time: 10:17 AM
  */
 public class VorbisPlayer implements Runnable {
-
     /**
      * Playing state which can either be stopped, playing, or reading the header before playing
      */
-    private static enum PlayerState {PLAYING, STOPPED, READING_HEADER}
+    private static enum PlayerState {
+        PLAYING, STOPPED, READING_HEADER, BUFFERING
+    }
+
+    /**
+     * Playing finished handler message
+     */
+    public static final int PLAYING_FINISHED = 46314;
+
+    /**
+     * Playing failed handler message
+     */
+    public static final int PLAYING_FAILED = 46315;
+
+    /**
+     * Playing started handler message
+     */
+    public static final int PLAYING_STARTED = 46316;
+
+    /**
+     * Handler for sending status updates
+     */
+    private final Handler handler;
 
     /**
      * Logging tag
@@ -46,11 +69,6 @@ public class VorbisPlayer implements Runnable {
     private final DecodeFeed decodeFeed;
 
     /**
-     * The audio track to write the raw pcm bytes to
-     */
-    private AudioTrack audioTrack;
-
-    /**
      * Current state of the vorbis player
      */
     private AtomicReference<PlayerState> currentState = new AtomicReference<PlayerState>(PlayerState.STOPPED);
@@ -60,10 +78,14 @@ public class VorbisPlayer implements Runnable {
      */
     private class FileDecodeFeed implements DecodeFeed {
         /**
+         * The audio track to write the raw pcm bytes to
+         */
+        private AudioTrack audioTrack;
+
+        /**
          * The input stream to decode from
          */
         private InputStream inputStream;
-
         /**
          * The file to decode ogg/vorbis data from
          */
@@ -111,6 +133,8 @@ public class VorbisPlayer implements Runnable {
         @Override
         public void stop() {
             if (isPlaying() || isReadingHeader()) {
+                sendMessageThroughHandler(PLAYING_FINISHED);
+
                 //Closes the file input stream
                 if (inputStream != null) {
                     try {
@@ -146,7 +170,7 @@ public class VorbisPlayer implements Runnable {
             }
 
             //Create the audio track
-            int channelConfiguration = decodeStreamInfo.getChannels() == 1 ? AudioFormat.CHANNEL_CONFIGURATION_MONO : AudioFormat.CHANNEL_CONFIGURATION_STEREO;
+            int channelConfiguration = decodeStreamInfo.getChannels() == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
             int minSize = AudioTrack.getMinBufferSize((int) decodeStreamInfo.getSampleRate(), channelConfiguration, AudioFormat.ENCODING_PCM_16BIT);
             audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, (int) decodeStreamInfo.getSampleRate(), channelConfiguration, AudioFormat.ENCODING_PCM_16BIT, minSize, AudioTrack.MODE_STREAM);
             audioTrack.play();
@@ -158,6 +182,7 @@ public class VorbisPlayer implements Runnable {
         @Override
         public void startReadingHeader() {
             if (inputStream == null && isStopped()) {
+                sendMessageThroughHandler(PLAYING_STARTED);
                 try {
                     inputStream = new BufferedInputStream(new FileInputStream(fileToDecode));
                     currentState.set(PlayerState.READING_HEADER);
@@ -167,31 +192,186 @@ public class VorbisPlayer implements Runnable {
                 }
             }
         }
+
+    }
+
+    /**
+     * Custom class to easily buffer and decode from a stream and write to an {@link AudioTrack}
+     */
+    private class BufferedDecodeFeed implements DecodeFeed {
+        /**
+         * The audio track to write the raw pcm bytes to
+         */
+        private AudioTrack audioTrack;
+
+        /**
+         * The initial buffer size
+         */
+        private final long bufferSize;
+
+        /**
+         * The input stream to decode from
+         */
+        private InputStream inputStream;
+
+        /**
+         * The amount of written pcm data to the audio track
+         */
+        private long writtenPCMData = 0;
+
+        /**
+         * Creates a decode feed that reads from a file and writes to an {@link AudioTrack}
+         *
+         * @param streamToDecode the stream to decode
+         */
+        private BufferedDecodeFeed(InputStream streamToDecode, long bufferSize) {
+            if (streamToDecode == null) {
+                throw new IllegalArgumentException("Stream to decode must not be null.");
+            }
+            this.inputStream = streamToDecode;
+            this.bufferSize = bufferSize;
+        }
+
+        @Override
+        public int readVorbisData(byte[] buffer, int amountToWrite) {
+            //If the player is not playing or reading the header, return 0 to end the native decode method
+            if (currentState.get() == PlayerState.STOPPED) {
+                return 0;
+            }
+
+            //Otherwise read from the file
+            try {
+                Log.d(TAG, "Reading...");
+                int read = inputStream.read(buffer, 0, amountToWrite);
+                Log.d(TAG, "Read...");
+                return read == -1 ? 0 : read;
+            } catch (IOException e) {
+                //There was a problem reading from the file
+                Log.e(TAG, "Failed to read vorbis data from file.  Aborting.", e);
+                return 0;
+            }
+        }
+
+        @Override
+        public void writePCMData(short[] pcmData, int amountToRead) {
+            //If we received data and are playing, write to the audio track
+            Log.d(TAG, "Writing data to track");
+            if (pcmData != null && amountToRead > 0 && audioTrack != null && (isPlaying() || isBuffering())) {
+                audioTrack.write(pcmData, 0, amountToRead);
+                writtenPCMData += amountToRead;
+                if (writtenPCMData >= bufferSize) {
+                    audioTrack.play();
+                    currentState.set(PlayerState.PLAYING);
+                }
+            }
+        }
+
+        @Override
+        public void stop() {
+            if (!isStopped()) {
+                sendMessageThroughHandler(PLAYING_FINISHED);
+
+                //If we were in a state of buffering before we actually started playing, start playing and write some silence to the track
+                if (currentState.get() == PlayerState.BUFFERING) {
+                    audioTrack.play();
+                    audioTrack.write(new byte[20000], 0, 20000);
+                }
+
+                //Closes the file input stream
+                if (inputStream != null) {
+                    try {
+                        inputStream.close();
+                    } catch (IOException e) {
+                        Log.e(TAG, "Failed to close file input stream", e);
+                    }
+                    inputStream = null;
+                }
+
+                //Stop the audio track
+                if (audioTrack != null) {
+                    audioTrack.stop();
+                    audioTrack.release();
+                    audioTrack = null;
+                }
+            }
+
+            //Set our state to stopped
+            currentState.set(PlayerState.STOPPED);
+        }
+
+        @Override
+        public void start(DecodeStreamInfo decodeStreamInfo) {
+            if (currentState.get() != PlayerState.READING_HEADER) {
+                throw new IllegalStateException("Must read header first!");
+            }
+            if (decodeStreamInfo.getChannels() != 1 && decodeStreamInfo.getChannels() != 2) {
+                throw new IllegalArgumentException("Channels can only be one or two");
+            }
+            if (decodeStreamInfo.getSampleRate() <= 0) {
+                throw new IllegalArgumentException("Invalid sample rate, must be above 0");
+            }
+
+            //Create the audio track
+            int channelConfiguration = decodeStreamInfo.getChannels() == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
+            int minSize = AudioTrack.getMinBufferSize((int) decodeStreamInfo.getSampleRate(), channelConfiguration, AudioFormat.ENCODING_PCM_16BIT);
+            audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, (int) decodeStreamInfo.getSampleRate(), channelConfiguration, AudioFormat.ENCODING_PCM_16BIT, minSize, AudioTrack.MODE_STREAM);
+            audioTrack.play();
+
+            //We're starting to read actual content
+            currentState.set(PlayerState.BUFFERING);
+        }
+
+        @Override
+        public void startReadingHeader() {
+            if (isStopped()) {
+                sendMessageThroughHandler(PLAYING_STARTED);
+                currentState.set(PlayerState.READING_HEADER);
+            }
+        }
+
     }
 
     /**
      * Constructs a new instance of the player with default parameters other than it will decode from a file
      *
      * @param fileToPlay the file to play
+     * @param handler    handler to send player status updates to
      * @throws FileNotFoundException thrown if the file could not be located/opened to playing
      */
-    public VorbisPlayer(File fileToPlay) throws FileNotFoundException {
+    public VorbisPlayer(File fileToPlay, Handler handler) throws FileNotFoundException {
         if (fileToPlay == null) {
             throw new IllegalArgumentException("File to play must not be null.");
         }
         this.decodeFeed = new FileDecodeFeed(fileToPlay);
+        this.handler = handler;
+    }
+
+    /**
+     * Constructs a player that will read from an {@link InputStream} and write to an {@link AudioTrack}
+     *
+     * @param audioDataStream the audio data stream to read from
+     * @param handler         handler to send player status updates to
+     */
+    public VorbisPlayer(InputStream audioDataStream, Handler handler) {
+        if (audioDataStream == null) {
+            throw new IllegalArgumentException("Input stream must not be null.");
+        }
+        this.decodeFeed = new BufferedDecodeFeed(audioDataStream, 24000);
+        this.handler = handler;
     }
 
     /**
      * Constructs a player with a custom {@link DecodeFeed}
      *
      * @param decodeFeed the custom decode feed
+     * @param handler    handler to send player status updates to
      */
-    public VorbisPlayer(DecodeFeed decodeFeed) {
+    public VorbisPlayer(DecodeFeed decodeFeed, Handler handler) {
         if (decodeFeed == null) {
             throw new IllegalArgumentException("Decode feed must not be null.");
         }
         this.decodeFeed = decodeFeed;
+        this.handler = handler;
     }
 
     /**
@@ -214,12 +394,14 @@ public class VorbisPlayer implements Runnable {
     @Override
     public void run() {
         //Start the native decoder
+        android.os.Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
         try {
             int result = VorbisDecoder.startDecoding(decodeFeed);
             if (result == DecodeFeed.SUCCESS) {
                 Log.d(TAG, "Successfully finished decoding");
             }
         } catch (DecodeException e) {
+            sendMessageThroughHandler(PLAYING_FAILED);
             switch (e.getErrorCode()) {
                 case DecodeException.INVALID_OGG_BITSTREAM:
                     Log.e(TAG, "Invalid ogg bitstream error received");
@@ -268,5 +450,25 @@ public class VorbisPlayer implements Runnable {
      */
     public synchronized boolean isReadingHeader() {
         return currentState.get() == PlayerState.READING_HEADER;
+    }
+
+    /**
+     * Checks whether the player is currently buffering
+     *
+     * @return <code>true</code> if buffering, <code>false</code> otherwise
+     */
+    public synchronized boolean isBuffering() {
+        return currentState.get() == PlayerState.BUFFERING;
+    }
+
+    /**
+     * Sends a message code through the handler if one is provided
+     *
+     * @param code the code to send via the handler
+     */
+    private void sendMessageThroughHandler(int code) {
+        if (handler != null) {
+            handler.sendEmptyMessage(code);
+        }
     }
 }

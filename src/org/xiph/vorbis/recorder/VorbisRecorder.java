@@ -1,5 +1,6 @@
 package org.xiph.vorbis.recorder;
 
+import android.os.Process;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -27,7 +28,27 @@ import java.util.concurrent.atomic.AtomicReference;
  * Time: 12:47 PM
  */
 public class VorbisRecorder {
-    private static enum RecorderState {RECORDING, STOPPED}
+    /**
+     * The sample rate of the recorder
+     */
+    private long sampleRate;
+
+    /**
+     * The number of channels for the recorder
+     */
+    private long numberOfChannels;
+
+    /**
+     * The output quality of the encoding
+     */
+    private float quality;
+
+    /**
+     * The state of the recorder
+     */
+    private static enum RecorderState {
+        RECORDING, STOPPED
+    }
 
     /**
      * Logging tag
@@ -38,11 +59,6 @@ public class VorbisRecorder {
      * The encode feed to feed raw pcm and write vorbis data
      */
     private final EncodeFeed encodeFeed;
-
-    /**
-     * The audio recorder to pull raw pcm data from
-     */
-    private AudioRecord audioRecorder;
 
     /**
      * The current state of the recorder
@@ -63,6 +79,11 @@ public class VorbisRecorder {
          * The output stream to write the vorbis data to
          */
         private OutputStream outputStream;
+
+        /**
+         * The audio recorder to pull raw pcm data from
+         */
+        private AudioRecord audioRecorder;
 
         /**
          * Constructs a file encode feed to write the encoded vorbis output to
@@ -145,6 +166,11 @@ public class VorbisRecorder {
         @Override
         public void start() {
             if (isStopped()) {
+                //Creates the audio recorder
+                int channelConfiguration = numberOfChannels == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_IN_STEREO;
+                int bufferSize = AudioRecord.getMinBufferSize((int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT);
+                audioRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, (int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+
                 //Start recording
                 currentState.set(RecorderState.RECORDING);
                 audioRecorder.startRecording();
@@ -157,6 +183,115 @@ public class VorbisRecorder {
                         Log.e(TAG, "Failed to write to file", e);
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Helper class that implements {@link EncodeFeed} that will write the processed vorbis data to an output stream
+     * and will read raw PCM data from an {@link AudioRecord}
+     */
+    private class OutputStreamEncodeFeed implements EncodeFeed {
+        /**
+         * The output stream to write the vorbis data to
+         */
+        private OutputStream outputStream;
+
+        /**
+         * The audio recorder to pull raw pcm data from
+         */
+        private AudioRecord audioRecorder;
+
+        /**
+         * Constructs a file encode feed to write the encoded vorbis output to
+         *
+         * @param outputStream the {@link OutputStream} to write the encoded information to
+         */
+        public OutputStreamEncodeFeed(OutputStream outputStream) {
+            if (outputStream == null) {
+                throw new IllegalArgumentException("The output stream must not be null");
+            }
+            this.outputStream = outputStream;
+        }
+
+        @Override
+        public long readPCMData(byte[] pcmDataBuffer, int amountToRead) {
+            //If we are no longer recording, return 0 to let the native encoder know
+            if (isStopped()) {
+                return 0;
+            }
+
+            //Otherwise read from the audio recorder
+            int read = audioRecorder.read(pcmDataBuffer, 0, amountToRead);
+            switch (read) {
+                case AudioRecord.ERROR_INVALID_OPERATION:
+                    Log.e(TAG, "Invalid operation on AudioRecord object");
+                    return 0;
+                case AudioRecord.ERROR_BAD_VALUE:
+                    Log.e(TAG, "Invalid value returned from audio recorder");
+                    return 0;
+                case -1:
+                    return 0;
+                default:
+                    //Successfully read from audio recorder
+                    return read;
+            }
+        }
+
+        @Override
+        public int writeVorbisData(byte[] vorbisData, int amountToWrite) {
+            //If we have data to write and we are recording, write the data
+            if (vorbisData != null && amountToWrite > 0 && outputStream != null && isRecording()) {
+                try {
+                    //Write the data to the output stream
+                    outputStream.write(vorbisData, 0, amountToWrite);
+                    return amountToWrite;
+                } catch (IOException e) {
+                    //Failed to write to the file
+                    Log.e(TAG, "Failed to write data to file, stopping recording", e);
+                    stop();
+                }
+            }
+            //Otherwise let the native encoder know we are done
+            return 0;
+        }
+
+        @Override
+        public void stop() {
+            if (isRecording()) {
+                //Set our state to stopped
+                currentState.set(RecorderState.STOPPED);
+
+                //Close the output stream
+                if (outputStream != null) {
+                    try {
+                        outputStream.flush();
+                        outputStream.close();
+                    } catch (IOException e) {
+                        Log.e(TAG, "Failed to close output stream", e);
+                    }
+                    outputStream = null;
+                }
+
+                //Stop and clean up the audio recorder
+                if (audioRecorder != null) {
+                    audioRecorder.stop();
+                    audioRecorder.release();
+                }
+            }
+        }
+
+        @Override
+        public void start() {
+            if (isStopped()) {
+                //Creates the audio recorder
+                int channelConfiguration = numberOfChannels == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_IN_STEREO;
+                int bufferSize = AudioRecord.getMinBufferSize((int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT);
+                audioRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, (int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+
+                //Start recording
+                currentState.set(RecorderState.RECORDING);
+                audioRecorder.startRecording();
             }
         }
     }
@@ -177,6 +312,19 @@ public class VorbisRecorder {
         }
 
         this.encodeFeed = new FileEncodeFeed(fileToSaveTo);
+    }
+
+    /**
+     * Constructs a recorder that will record an ogg output stream
+     *
+     * @param streamToWriteTo the output stream to write the encoded information to
+     */
+    public VorbisRecorder(OutputStream streamToWriteTo) {
+        if (streamToWriteTo == null) {
+            throw new IllegalArgumentException("File to play must not be null.");
+        }
+
+        this.encodeFeed = new OutputStreamEncodeFeed(streamToWriteTo);
     }
 
     /**
@@ -212,13 +360,12 @@ public class VorbisRecorder {
                 throw new IllegalArgumentException("Quality must be between -0.1 and 1.0");
             }
 
-            //Creates the audio recorder
-            int channelConfiguration = numberOfChannels == 1 ? AudioFormat.CHANNEL_CONFIGURATION_MONO : AudioFormat.CHANNEL_CONFIGURATION_STEREO;
-            int bufferSize = AudioRecord.getMinBufferSize((int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT);
-            audioRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, (int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+            this.sampleRate = sampleRate;
+            this.numberOfChannels = numberOfChannels;
+            this.quality = quality;
 
             //Starts the recording process
-            new Thread(new AsyncEncoding(sampleRate, numberOfChannels, quality)).start();
+            new Thread(new AsyncEncoding()).start();
         }
     }
 
@@ -229,23 +376,16 @@ public class VorbisRecorder {
         encodeFeed.stop();
     }
 
+    /**
+     * Starts the encoding process in a background thread
+     */
     private class AsyncEncoding implements Runnable {
-
-        private final long sampleRate;
-        private final long numberOfchannels;
-        private final float quality;
-
-        public AsyncEncoding(long sampleRate, long numberOfChannels, float quality) {
-            this.sampleRate = sampleRate;
-            this.numberOfchannels = numberOfChannels;
-            this.quality = quality;
-        }
-
         @Override
         public void run() {
             //Start the native encoder
             try {
-                int result = VorbisEncoder.startEncoding(sampleRate, numberOfchannels, quality, encodeFeed);
+                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
+                int result = VorbisEncoder.startEncoding(sampleRate, numberOfChannels, quality, encodeFeed);
                 if (result == EncodeFeed.SUCCESS) {
                     Log.d(TAG, "Encoder successfully finished");
                 }

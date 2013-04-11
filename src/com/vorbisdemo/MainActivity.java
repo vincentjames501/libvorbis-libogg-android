@@ -6,9 +6,6 @@ import android.os.Environment;
 import android.util.Log;
 import android.view.View;
 import android.widget.Toast;
-import org.xiph.vorbis.decoder.DecodeFeed;
-import org.xiph.vorbis.decoder.DecodeStreamInfo;
-import org.xiph.vorbis.encoder.EncodeFeed;
 import org.xiph.vorbis.player.VorbisPlayer;
 import org.xiph.vorbis.recorder.VorbisRecorder;
 
@@ -91,7 +88,7 @@ public class MainActivity extends Activity {
             //Create the vorbis player if necessary
             if (vorbisPlayer == null) {
                 try {
-                    vorbisPlayer = new VorbisPlayer(fileToPlay);
+                    vorbisPlayer = new VorbisPlayer(fileToPlay, null);
                 } catch (FileNotFoundException e) {
                     Log.e(TAG, "Failed to find saveTo.ogg", e);
                     Toast.makeText(this, "Failed to find file to play!", 2000).show();
