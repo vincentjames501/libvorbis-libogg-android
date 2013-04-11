@@ -13,6 +13,8 @@ to end. */
 #define PREMATURE_END_OF_FILE -26
 #define SUCCESS 0
 
+#define BUFFER_LENGTH 4096
+
 extern void _VDBG_dump(void);
 
 //Stops the vorbis data feed
@@ -40,48 +42,39 @@ void throwDecodeException(JNIEnv *env, const int code, jobject* vorbisDataFeed, 
 }
 
 //Reads raw vorbis data from the jni callback
-int readVorbisDataFromVorbisDataFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* readVorbisDataMethodId, char* buffer, int length) {
+int readVorbisDataFromVorbisDataFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* readVorbisDataMethodId, char* buffer, jbyteArray* jByteArrayReadBuffer) {
+    //Call the read method
+    int readByteCount = (*env)->CallIntMethod(env, (*vorbisDataFeed), (*readVorbisDataMethodId), (*jByteArrayReadBuffer), BUFFER_LENGTH);
     
-    //create a new java byte array to pass to the vorbis data feed method
-    jbyteArray jByteArray = (*env)->NewByteArray(env, length);
-    int readByteCount = (*env)->CallIntMethod(env, (*vorbisDataFeed), (*readVorbisDataMethodId), jByteArray, length);
-    
-    //Don't bother copying, just delete the reference and return 0
+    //Don't bother copying, just return 0
     if(readByteCount == 0) {
-        (*env)->DeleteLocalRef(env, jByteArray);
         return 0;
     }
-    
-    
+
     //Gets the bytes from the java array and copies them to the vorbis buffer
-    jbyte* readBytes = (*env)->GetByteArrayElements(env, jByteArray, NULL);
+    jbyte* readBytes = (*env)->GetByteArrayElements(env, (*jByteArrayReadBuffer), NULL);
     memcpy(buffer, readBytes, readByteCount);
     
     //Clean up memory and return how much data was read
-    (*env)->ReleaseByteArrayElements(env, jByteArray, readBytes, JNI_ABORT);
-    (*env)->DeleteLocalRef(env, jByteArray);
+    (*env)->ReleaseByteArrayElements(env, (*jByteArrayReadBuffer), readBytes, JNI_ABORT);
+
+    //Return the amount actually read
     return readByteCount;
-    
 }
 
 //Writes the pcm data to the Java layer
-void writePCMDataFromVorbisDataFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* writePCMDataMethodId, ogg_int16_t* buffer, int bytes) {
+void writePCMDataFromVorbisDataFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* writePCMDataMethodId, ogg_int16_t* buffer, int bytes, jshortArray* jShortArrayWriteBuffer) {
     
     //No data to read, just exit
     if(bytes == 0) {
         return;
     }
 
-    //Create and copy the contents of what we're writing to the java short array
-    jshortArray jShortArray = (*env)->NewShortArray(env, bytes);
-    (*env)->SetShortArrayRegion(env, jShortArray, 0, bytes, (jshort *)buffer);
+    //Copy the contents of what we're writing to the java short array
+    (*env)->SetShortArrayRegion(env, (*jShortArrayWriteBuffer), 0, bytes, (jshort *)buffer);
     
     //Call the write pcm data method
-    (*env)->CallVoidMethod(env, (*vorbisDataFeed), (*writePCMDataMethodId), jShortArray, bytes);
-    
-    //cleanup
-    (*env)->DeleteLocalRef(env, jShortArray);
-    
+    (*env)->CallVoidMethod(env, (*vorbisDataFeed), (*writePCMDataMethodId), (*jShortArrayWriteBuffer), bytes);
 }
 
 //Starts the decode feed with the necessary information about sample rates, channels, etc about the stream
@@ -119,6 +112,12 @@ void startReadingHeader(JNIEnv *env, jobject *vorbisDataFeed, jmethodID* startRe
 JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
 (JNIEnv *env, jclass cls, jobject vorbisDataFeed) {
 
+    //Create a new java byte array to pass to the vorbis data feed method
+    jbyteArray jByteArrayReadBuffer = (*env)->NewByteArray(env, BUFFER_LENGTH);
+
+    //Create our write buffer
+    jshortArray jShortArrayWriteBuffer = (*env)->NewShortArray(env, BUFFER_LENGTH*2);
+
     //Find our java classes we'll be calling
     jclass vorbisDataFeedClass = (*env)->FindClass(env, "org/xiph/vorbis/decoder/DecodeFeed");
 
@@ -129,8 +128,8 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
     jmethodID startReadingHeaderMethodId = (*env)->GetMethodID(env, vorbisDataFeedClass, "startReadingHeader", "()V");
     jmethodID stopMethodId = (*env)->GetMethodID(env, vorbisDataFeedClass, "stop", "()V");
 
-    ogg_int16_t convbuffer[4096]; /* take 8k out of the data segment, not the stack */
-    int convsize=4096;
+    ogg_int16_t convbuffer[BUFFER_LENGTH]; /* take 8k out of the data segment, not the stack */
+    int convsize=BUFFER_LENGTH;
     
     ogg_sync_state   oy; /* sync and verify incoming physical bitstream */
     ogg_stream_state os; /* take physical pages, weld into a logical stream of packets */
@@ -164,15 +163,15 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
         
         /* submit a 4k block to libvorbis' Ogg layer */
         __android_log_print(ANDROID_LOG_INFO, "VorbisDecoder", "Submitting 4k block to libvorbis' Ogg layer");
-        buffer=ogg_sync_buffer(&oy,4096);
-        bytes=readVorbisDataFromVorbisDataFeed(env, &vorbisDataFeed, &readVorbisDataMethodId, buffer, 4096);
+        buffer=ogg_sync_buffer(&oy,BUFFER_LENGTH);
+        bytes=readVorbisDataFromVorbisDataFeed(env, &vorbisDataFeed, &readVorbisDataMethodId, buffer, &jByteArrayReadBuffer);
         ogg_sync_wrote(&oy,bytes);
         
         /* Get the first page. */
         __android_log_print(ANDROID_LOG_DEBUG, "VorbisDecoder", "Getting the first page, read (%d) bytes", bytes);
         if(ogg_sync_pageout(&oy,&og)!=1){
             /* have we simply run out of data?  If so, we're done. */
-            if(bytes<4096)break;
+            if(bytes<BUFFER_LENGTH)break;
             
             /* error case.  Must not be Vorbis data */
             throwDecodeException(env, INVALID_OGG_BITSTREAM, &vorbisDataFeed, &stopMethodId);
@@ -256,8 +255,8 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
                 }
             }
             /* no harm in not checking before adding more */
-            buffer=ogg_sync_buffer(&oy,4096);
-            bytes=readVorbisDataFromVorbisDataFeed(env, &vorbisDataFeed, &readVorbisDataMethodId, buffer, 4096);
+            buffer=ogg_sync_buffer(&oy,BUFFER_LENGTH);
+            bytes=readVorbisDataFromVorbisDataFeed(env, &vorbisDataFeed, &readVorbisDataMethodId, buffer, &jByteArrayReadBuffer);
             if(bytes==0 && i<2){
                 throwDecodeException(env, PREMATURE_END_OF_FILE, &vorbisDataFeed, &stopMethodId);
                 return PREMATURE_END_OF_FILE;
@@ -281,7 +280,7 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
             start(env, &vorbisDataFeed, &startMethodId, vi.rate, vi.channels, vc.vendor);
         }
 
-        convsize=4096/vi.channels;
+        convsize=BUFFER_LENGTH/vi.channels;
 
         /* OK, got and parsed all three headers. Initialize the Vorbis
         packet->PCM decoder. */
@@ -365,7 +364,7 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
                                         __android_log_print(ANDROID_LOG_INFO, "VorbisDecoder", "Clipping in frame %ld\n",(long)(vd.sequence));
                                     }
 
-                                    writePCMDataFromVorbisDataFeed(env, &vorbisDataFeed, &writePCMDataMethodId, &convbuffer[0], bout*vi.channels);
+                                    writePCMDataFromVorbisDataFeed(env, &vorbisDataFeed, &writePCMDataMethodId, &convbuffer[0], bout*vi.channels, &jShortArrayWriteBuffer);
 
                                     vorbis_synthesis_read(&vd,bout); /* tell libvorbis how many samples we actually consumed */
                                 }
@@ -376,8 +375,8 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
                 }
 
                 if(!eos){
-                    buffer=ogg_sync_buffer(&oy,4096);
-                    bytes=readVorbisDataFromVorbisDataFeed(env, &vorbisDataFeed, &readVorbisDataMethodId, buffer, 4096);
+                    buffer=ogg_sync_buffer(&oy,BUFFER_LENGTH);
+                    bytes=readVorbisDataFromVorbisDataFeed(env, &vorbisDataFeed, &readVorbisDataMethodId, buffer, &jByteArrayReadBuffer);
                     ogg_sync_wrote(&oy,bytes);
                     if(bytes==0) {
                         eos=1;
@@ -406,6 +405,13 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
     /* OK, clean up the framer */
     ogg_sync_clear(&oy);
 
+
+
     stopDecodeFeed(env, &vorbisDataFeed, &stopMethodId);
+
+    //Clean up our buffers
+    (*env)->DeleteLocalRef(env, jByteArrayReadBuffer);
+    (*env)->DeleteLocalRef(env, jShortArrayWriteBuffer);
+
     return SUCCESS;
 }

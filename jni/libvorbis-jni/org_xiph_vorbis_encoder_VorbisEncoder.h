@@ -23,10 +23,10 @@ void startEncodeFeed(JNIEnv *env, jobject *vorbisDataFeed, jmethodID* startMetho
 void stopEncodeFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* stopMethodId);
 
 //Reads pcm data from the jni callback
-long readPCMDataFromEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmethodID* readPCMDataMethodId, char* buffer, int length);
+long readPCMDataFromEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmethodID* readPCMDataMethodId, char* buffer, int length, jbyteArray* jByteArrayBuffer);
 
 //Writes the vorbis data to the Java layer
-int writeVorbisDataToEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmethodID* writeVorbisDataMethodId, char* buffer, int bytes);
+int writeVorbisDataToEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmethodID* writeVorbisDataMethodId, char* buffer, int bytes, jbyteArray* jByteArrayWriteBuffer);
 
 JNIEXPORT int JNICALL Java_org_xiph_vorbis_encoder_VorbisEncoder_startEncoding
 (JNIEnv *env, jclass cls, jlong sampleRate, jlong channels, jfloat quality, jobject encoderDataFeed);

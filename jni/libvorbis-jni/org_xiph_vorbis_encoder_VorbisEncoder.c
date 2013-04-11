@@ -40,31 +40,27 @@ void stopEncodeFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* stopMethodI
 }
 
 //Reads pcm data from the jni callback
-long readPCMDataFromEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmethodID* readPCMDataMethodId, char* buffer, int length) {
-
-    //create a new java byte array to pass to the data feed method
-    jbyteArray jByteArray = (*env)->NewByteArray(env, length);
-    long readByteCount = (*env)->CallLongMethod(env, (*encoderDataFeed), (*readPCMDataMethodId), jByteArray, length);
+long readPCMDataFromEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmethodID* readPCMDataMethodId, char* buffer, int length, jbyteArray* jByteArrayBuffer) {
+    long readByteCount = (*env)->CallLongMethod(env, (*encoderDataFeed), (*readPCMDataMethodId), (*jByteArrayBuffer), length);
 
     //Don't bother copying, just delete the reference and return 0
     if(readByteCount == 0) {
-        (*env)->DeleteLocalRef(env, jByteArray);
+        (*env)->DeleteLocalRef(env, (*jByteArrayBuffer));
         return 0;
     }
 
     //Gets the bytes from the java array and copies them to the pcm buffer
-    jbyte* readBytes = (*env)->GetByteArrayElements(env, jByteArray, NULL);
+    jbyte* readBytes = (*env)->GetByteArrayElements(env, (*jByteArrayBuffer), NULL);
     memcpy(buffer, readBytes, readByteCount);
 
     //Clean up memory and return how much data was read
-    (*env)->ReleaseByteArrayElements(env, jByteArray, readBytes, JNI_ABORT);
-    (*env)->DeleteLocalRef(env, jByteArray);
+    (*env)->ReleaseByteArrayElements(env, (*jByteArrayBuffer), readBytes, JNI_ABORT);
 
     return readByteCount;
 }
 
 //Writes the vorbis data to the Java layer
-int writeVorbisDataToEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmethodID* writeVorbisDataMethodId, char* buffer, int bytes) {
+int writeVorbisDataToEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmethodID* writeVorbisDataMethodId, char* buffer, int bytes, jbyteArray* jByteArrayWriteBuffer) {
 
     //No data to write, just exit
     if(bytes == 0) {
@@ -73,14 +69,12 @@ int writeVorbisDataToEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmet
 
     //Create and copy the contents of what we're writing to the java byte array
     jbyteArray jByteArray = (*env)->NewByteArray(env, bytes);
-    (*env)->SetByteArrayRegion(env, jByteArray, 0, bytes, (jbyte *)buffer);
+    (*env)->SetByteArrayRegion(env, (*jByteArrayWriteBuffer), 0, bytes, (jbyte *)buffer);
 
     //Call the write vorbis data method
-    int amountWritten = (*env)->CallIntMethod(env, (*encoderDataFeed), (*writeVorbisDataMethodId), jByteArray, bytes);
+    int amountWritten = (*env)->CallIntMethod(env, (*encoderDataFeed), (*writeVorbisDataMethodId), (*jByteArrayWriteBuffer), bytes);
 
-    //cleanup
-    (*env)->DeleteLocalRef(env, jByteArray);
-
+    //Return the amount that was actually written
     return amountWritten;
 }
 
@@ -89,6 +83,12 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_encoder_VorbisEncoder_startEncoding
 
   //Create our PCM data buffer
   signed char readbuffer[READ*4+44];
+
+  //Create a new java byte array to pass to the data feed method
+  jbyteArray jByteArrayBuffer = (*env)->NewByteArray(env, READ*4);
+
+  //Create a new java byte buffer to write to
+  jbyteArray jByteArrayWriteBuffer = (*env)->NewByteArray(env, READ*8);
 
   //Find our java classes we'll be calling
   jclass encoderDataFeedClass = (*env)->FindClass(env, "org/xiph/vorbis/encoder/EncodeFeed");
@@ -201,8 +201,8 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_encoder_VorbisEncoder_startEncoding
     while(!eos){
       int result=ogg_stream_flush(&os,&og);
       if(result==0)break;
-      writeVorbisDataToEncoderDataFeed(env, &encoderDataFeed, &writeVorbisDataMethodId, og.header, og.header_len);
-      writeVorbisDataToEncoderDataFeed(env, &encoderDataFeed, &writeVorbisDataMethodId, og.body, og.body_len);
+      writeVorbisDataToEncoderDataFeed(env, &encoderDataFeed, &writeVorbisDataMethodId, og.header, og.header_len, &jByteArrayWriteBuffer);
+      writeVorbisDataToEncoderDataFeed(env, &encoderDataFeed, &writeVorbisDataMethodId, og.body, og.body_len, &jByteArrayWriteBuffer);
     }
 
   }
@@ -210,7 +210,7 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_encoder_VorbisEncoder_startEncoding
   __android_log_print(ANDROID_LOG_INFO, "VorbisEncoder", "Starting to read from pcm callback");
   while(!eos){
     long i;
-    long bytes = readPCMDataFromEncoderDataFeed(env, &encoderDataFeed, &readPCMDataMethodId, readbuffer, READ*4);
+    long bytes = readPCMDataFromEncoderDataFeed(env, &encoderDataFeed, &readPCMDataMethodId, readbuffer, READ*4, &jByteArrayBuffer);
 
     if(bytes==0){
       /* end of file.  this can be done implicitly in the mainline,
@@ -257,8 +257,8 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_encoder_VorbisEncoder_startEncoding
         while(!eos){
           int result=ogg_stream_pageout(&os,&og);
           if(result==0)break;
-          writeVorbisDataToEncoderDataFeed(env, &encoderDataFeed, &writeVorbisDataMethodId, og.header, og.header_len);
-          writeVorbisDataToEncoderDataFeed(env, &encoderDataFeed, &writeVorbisDataMethodId, og.body, og.body_len);
+          writeVorbisDataToEncoderDataFeed(env, &encoderDataFeed, &writeVorbisDataMethodId, og.header, og.header_len, &jByteArrayWriteBuffer);
+          writeVorbisDataToEncoderDataFeed(env, &encoderDataFeed, &writeVorbisDataMethodId, og.body, og.body_len, &jByteArrayWriteBuffer);
 
           /* this could be set above, but for illustrative purposes, I do
              it here (to show that vorbis does know where the stream ends) */
@@ -281,5 +281,10 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_encoder_VorbisEncoder_startEncoding
      libvorbis.  They're never freed or manipulated directly */
   __android_log_print(ANDROID_LOG_INFO, "VorbisEncoder", "Completed encoding.");
   stopEncodeFeed(env, &encoderDataFeed, &stopMethodId);
+
+  //Clean up encode buffers
+  (*env)->DeleteLocalRef(env, jByteArrayBuffer);
+  (*env)->DeleteLocalRef(env, jByteArrayWriteBuffer);
+
   return SUCCESS;
 }
