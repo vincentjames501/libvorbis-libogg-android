@@ -23,7 +23,16 @@ public class VorbisEncoder {
      * @param numberOfChannels the number of channels
      * @param quality          the quality to encode the output vorbis data
      * @param encodeFeed       the custom encoder feed
-     * @throws EncodeException thrown if there was a problem encoding the incoming data
      */
-    public static native int startEncoding(long sampleRate, long numberOfChannels, float quality, EncodeFeed encodeFeed) throws EncodeException;
+    public static native int startEncodingWithQuality(long sampleRate, long numberOfChannels, float quality, EncodeFeed encodeFeed);
+
+    /**
+     * The native JNI method call to the encoder to start encoding raw pcm data to encoded vorbis data
+     *
+     * @param sampleRate       the sample rate which the incoming pcm data will arrive
+     * @param numberOfChannels the number of channels
+     * @param bitrate          the bitrate of the output vorbis data
+     * @param encodeFeed       the custom encoder feed
+     */
+    public static native int startEncodingWithBitrate(long sampleRate, long numberOfChannels, long bitrate, EncodeFeed encodeFeed);
 }

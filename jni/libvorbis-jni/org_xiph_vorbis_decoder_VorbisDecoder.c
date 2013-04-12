@@ -22,25 +22,6 @@ void stopDecodeFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* stopMethodI
     (*env)->CallVoidMethod(env, (*vorbisDataFeed), (*stopMethodId));
 }
 
-//Throws an exception to the java layer with th specified error code and stops the decode feed
-void throwDecodeException(JNIEnv *env, const int code, jobject* vorbisDataFeed, jmethodID* stopMethodId) {
-    //Find the decode exception class and constructor
-    jclass decodeExceptionClass = (*env)->FindClass(env, "org/xiph/vorbis/decoder/DecodeException");
-    jmethodID constructor = (*env)->GetMethodID(env, decodeExceptionClass, "<init>", "(I)V");
-
-    //Create the decode exception object
-    jobject decodeException = (*env)->NewObject(env, vorbisDataFeed, constructor, code);
-
-    //Throw the exception
-    (*env)->Throw(env, decodeException);
-
-    //Free the exception object
-    (*env)->DeleteLocalRef(env, decodeException);
-
-    //Stop the decode feed
-    stopDecodeFeed(env, vorbisDataFeed, stopMethodId);
-}
-
 //Reads raw vorbis data from the jni callback
 int readVorbisDataFromVorbisDataFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* readVorbisDataMethodId, char* buffer, jbyteArray* jByteArrayReadBuffer) {
     //Call the read method
@@ -174,7 +155,7 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
             if(bytes<BUFFER_LENGTH)break;
             
             /* error case.  Must not be Vorbis data */
-            throwDecodeException(env, INVALID_OGG_BITSTREAM, &vorbisDataFeed, &stopMethodId);
+            stopDecodeFeed(env, &vorbisDataFeed, &stopMethodId);
             return INVALID_OGG_BITSTREAM;
         }
 
@@ -196,21 +177,21 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
         vorbis_comment_init(&vc);
         if(ogg_stream_pagein(&os,&og)<0){
             /* error; stream version mismatch perhaps */
-            throwDecodeException(env, ERROR_READING_FIRST_PAGE, &vorbisDataFeed, &stopMethodId);
+            stopDecodeFeed(env, &vorbisDataFeed, &stopMethodId);
             return ERROR_READING_FIRST_PAGE;
         }
 
 
         if(ogg_stream_packetout(&os,&op)!=1){
             /* no page? must not be vorbis */
-            throwDecodeException(env, ERROR_READING_INITIAL_HEADER_PACKET, &vorbisDataFeed, &stopMethodId);
+            stopDecodeFeed(env, &vorbisDataFeed, &stopMethodId);
             return ERROR_READING_INITIAL_HEADER_PACKET;
         }
 
 
         if(vorbis_synthesis_headerin(&vi,&vc,&op)<0){
             /* error case; not a vorbis header */
-            throwDecodeException(env, NOT_VORBIS_HEADER, &vorbisDataFeed, &stopMethodId);
+            stopDecodeFeed(env, &vorbisDataFeed, &stopMethodId);
             return NOT_VORBIS_HEADER;
         }
 
@@ -242,12 +223,12 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
                         if(result<0){
                             /* Uh oh; data at some point was corrupted or missing!
                             We can't tolerate that in a header.  Die. */
-                            throwDecodeException(env, CORRUPT_SECONDARY_HEADER, &vorbisDataFeed, &stopMethodId);
+                            stopDecodeFeed(env, &vorbisDataFeed, &stopMethodId);
                             return CORRUPT_SECONDARY_HEADER;
                         }
                         result=vorbis_synthesis_headerin(&vi,&vc,&op);
                         if(result<0){
-                            throwDecodeException(env, CORRUPT_SECONDARY_HEADER, &vorbisDataFeed, &stopMethodId);
+                            stopDecodeFeed(env, &vorbisDataFeed, &stopMethodId);
                             return CORRUPT_SECONDARY_HEADER;
                         }
                         i++;
@@ -258,7 +239,7 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
             buffer=ogg_sync_buffer(&oy,BUFFER_LENGTH);
             bytes=readVorbisDataFromVorbisDataFeed(env, &vorbisDataFeed, &readVorbisDataMethodId, buffer, &jByteArrayReadBuffer);
             if(bytes==0 && i<2){
-                throwDecodeException(env, PREMATURE_END_OF_FILE, &vorbisDataFeed, &stopMethodId);
+                stopDecodeFeed(env, &vorbisDataFeed, &stopMethodId);
                 return PREMATURE_END_OF_FILE;
             }
             ogg_sync_wrote(&oy,bytes);

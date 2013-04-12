@@ -14,6 +14,11 @@ public interface EncodeFeed {
     public static final int SUCCESS = 0;
 
     /**
+     * If there was an error initializing the encoder
+     */
+    public static final int ERROR_INITIALIZING = -44;
+
+    /**
      * Triggered by the native {@link VorbisEncoder} when it needs to read raw pcm data
      *
      * @param pcmDataBuffer the buffer to write the raw pcm data to
@@ -32,9 +37,14 @@ public interface EncodeFeed {
     public int writeVorbisData(byte[] vorbisData, int amountToRead);
 
     /**
-     * To be called to stop the encoder
+     * To be called by the native encoder notifying the encode feed is complete
      */
     public void stop();
+
+    /**
+     * To be called to stop the encoder
+     */
+    public void stopEncoding();
 
     /**
      * To be called when the encoding has started

@@ -1,19 +1,95 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-	android:orientation="vertical" android:layout_width="fill_parent"
-	android:layout_height="fill_parent">
-    <Button
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Start Recording"
-            android:id="@+id/button" android:onClick="startRecording"/>
-    <Button android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Stop Recording"
-            android:id="@+id/button1" android:onClick="stopRecording"/>
-    <Button
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Start Playing"
-            android:id="@+id/button2" android:onClick="startPlaying"/>
-    <Button android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Stop Playing"
-            android:id="@+id/button3" android:onClick="stopPlaying"/>
+              android:orientation="vertical" android:layout_width="fill_parent"
+              android:layout_height="fill_parent">
+    <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content">
+        <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sample Rate"
+                android:id="@+id/textView"/>
+        <Spinner
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:id="@+id/sample_rate_spinner"
+                android:entries="@array/available_sample_rates"/>
+        <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Channel Configuration"
+                android:id="@+id/textView2"/>
+        <Spinner
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:id="@+id/channel_config_spinner"
+                android:entries="@array/available_channel_configurations"/>
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                  android:text="Encoding Type" android:id="@+id/textView1"/>
+        <RadioGroup
+                android:layout_width="fill_parent"
+                android:layout_height="wrap_content" android:weightSum="2" android:orientation="horizontal"
+                android:id="@+id/encoding_type_radio_group">
+            <RadioButton
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:text="With Quality"
+                    android:id="@+id/with_quality" android:layout_weight="1" android:checked="true"/>
+            <RadioButton android:layout_width="0dp" android:layout_height="wrap_content"
+                         android:text="With Bitrate" android:id="@+id/with_bitrate" android:layout_weight="1"/>
+        </RadioGroup>
+        <LinearLayout
+                android:orientation="vertical"
+                android:layout_width="fill_parent"
+                android:id="@+id/available_qualities_layout"
+                android:layout_height="fill_parent">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                      android:text="Quality Level" android:id="@+id/textView3"/>
+            <Spinner android:layout_width="wrap_content" android:layout_height="wrap_content"
+                     android:id="@+id/quality_spinner"
+                     android:entries="@array/available_qualities"/>
+        </LinearLayout>
+        <LinearLayout
+                android:orientation="vertical"
+                android:layout_width="fill_parent"
+                android:id="@+id/available_bitrates_layout"
+                android:layout_height="fill_parent" android:visibility="gone">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                      android:text="Bitrate" android:id="@+id/textView4"/>
+            <Spinner android:layout_width="wrap_content" android:layout_height="wrap_content"
+                     android:id="@+id/bitrate_spinner"
+                     android:entries="@array/available_bitrates"/>
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content">
+        <Button
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:text="Start Recording"
+                android:id="@+id/start_recording_button" android:onClick="startRecording" android:layout_weight="1"/>
+        <Button android:layout_width="0dp" android:layout_height="wrap_content" android:text="Stop Recording"
+                android:id="@+id/stop_recording_button" android:onClick="stopRecording" android:layout_weight="1"/>
+    </LinearLayout>
+    <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content">
+        <Button
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:text="Start Playing"
+                android:id="@+id/start_playing_button" android:onClick="startPlaying" android:layout_weight="1"/>
+        <Button android:layout_width="0dp" android:layout_height="wrap_content" android:text="Stop Playing"
+                android:id="@+id/stop_playing_button" android:onClick="stopPlaying" android:layout_weight="1"/>
+    </LinearLayout>
+    <TextView
+            android:layout_width="fill_parent"
+            android:layout_height="fill_parent"
+            android:scrollbars="vertical"
+            android:id="@+id/log_area"/>
 </LinearLayout>

@@ -6,7 +6,6 @@ import android.media.AudioTrack;
 import android.os.*;
 import android.os.Process;
 import android.util.Log;
-import org.xiph.vorbis.decoder.DecodeException;
 import org.xiph.vorbis.decoder.DecodeFeed;
 import org.xiph.vorbis.decoder.DecodeStreamInfo;
 import org.xiph.vorbis.decoder.VorbisDecoder;
@@ -133,8 +132,6 @@ public class VorbisPlayer implements Runnable {
         @Override
         public void stop() {
             if (isPlaying() || isReadingHeader()) {
-                sendMessageThroughHandler(PLAYING_FINISHED);
-
                 //Closes the file input stream
                 if (inputStream != null) {
                     try {
@@ -182,7 +179,7 @@ public class VorbisPlayer implements Runnable {
         @Override
         public void startReadingHeader() {
             if (inputStream == null && isStopped()) {
-                sendMessageThroughHandler(PLAYING_STARTED);
+                handler.sendEmptyMessage(PLAYING_STARTED);
                 try {
                     inputStream = new BufferedInputStream(new FileInputStream(fileToDecode));
                     currentState.set(PlayerState.READING_HEADER);
@@ -269,8 +266,6 @@ public class VorbisPlayer implements Runnable {
         @Override
         public void stop() {
             if (!isStopped()) {
-                sendMessageThroughHandler(PLAYING_FINISHED);
-
                 //If we were in a state of buffering before we actually started playing, start playing and write some silence to the track
                 if (currentState.get() == PlayerState.BUFFERING) {
                     audioTrack.play();
@@ -324,7 +319,7 @@ public class VorbisPlayer implements Runnable {
         @Override
         public void startReadingHeader() {
             if (isStopped()) {
-                sendMessageThroughHandler(PLAYING_STARTED);
+                handler.sendEmptyMessage(PLAYING_STARTED);
                 currentState.set(PlayerState.READING_HEADER);
             }
         }
@@ -342,6 +337,9 @@ public class VorbisPlayer implements Runnable {
         if (fileToPlay == null) {
             throw new IllegalArgumentException("File to play must not be null.");
         }
+        if (handler == null) {
+            throw new IllegalArgumentException("Handler must not be null.");
+        }
         this.decodeFeed = new FileDecodeFeed(fileToPlay);
         this.handler = handler;
     }
@@ -356,6 +354,9 @@ public class VorbisPlayer implements Runnable {
         if (audioDataStream == null) {
             throw new IllegalArgumentException("Input stream must not be null.");
         }
+        if (handler == null) {
+            throw new IllegalArgumentException("Handler must not be null.");
+        }
         this.decodeFeed = new BufferedDecodeFeed(audioDataStream, 24000);
         this.handler = handler;
     }
@@ -369,6 +370,9 @@ public class VorbisPlayer implements Runnable {
     public VorbisPlayer(DecodeFeed decodeFeed, Handler handler) {
         if (decodeFeed == null) {
             throw new IllegalArgumentException("Decode feed must not be null.");
+        }
+        if (handler == null) {
+            throw new IllegalArgumentException("Handler must not be null.");
         }
         this.decodeFeed = decodeFeed;
         this.handler = handler;
@@ -395,33 +399,36 @@ public class VorbisPlayer implements Runnable {
     public void run() {
         //Start the native decoder
         android.os.Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
-        try {
-            int result = VorbisDecoder.startDecoding(decodeFeed);
-            if (result == DecodeFeed.SUCCESS) {
+        int result = VorbisDecoder.startDecoding(decodeFeed);
+        switch (result) {
+            case DecodeFeed.SUCCESS:
                 Log.d(TAG, "Successfully finished decoding");
-            }
-        } catch (DecodeException e) {
-            sendMessageThroughHandler(PLAYING_FAILED);
-            switch (e.getErrorCode()) {
-                case DecodeException.INVALID_OGG_BITSTREAM:
-                    Log.e(TAG, "Invalid ogg bitstream error received");
-                    break;
-                case DecodeException.ERROR_READING_FIRST_PAGE:
-                    Log.e(TAG, "Error reading first page error received");
-                    break;
-                case DecodeException.ERROR_READING_INITIAL_HEADER_PACKET:
-                    Log.e(TAG, "Error reading initial header packet error received");
-                    break;
-                case DecodeException.NOT_VORBIS_HEADER:
-                    Log.e(TAG, "Not a vorbis header error received");
-                    break;
-                case DecodeException.CORRUPT_SECONDARY_HEADER:
-                    Log.e(TAG, "Corrupt secondary header error received");
-                    break;
-                case DecodeException.PREMATURE_END_OF_FILE:
-                    Log.e(TAG, "Premature end of file error received");
-                    break;
-            }
+                handler.sendEmptyMessage(PLAYING_FINISHED);
+                break;
+            case DecodeFeed.INVALID_OGG_BITSTREAM:
+                handler.sendEmptyMessage(PLAYING_FAILED);
+                Log.e(TAG, "Invalid ogg bitstream error received");
+                break;
+            case DecodeFeed.ERROR_READING_FIRST_PAGE:
+                handler.sendEmptyMessage(PLAYING_FAILED);
+                Log.e(TAG, "Error reading first page error received");
+                break;
+            case DecodeFeed.ERROR_READING_INITIAL_HEADER_PACKET:
+                handler.sendEmptyMessage(PLAYING_FAILED);
+                Log.e(TAG, "Error reading initial header packet error received");
+                break;
+            case DecodeFeed.NOT_VORBIS_HEADER:
+                handler.sendEmptyMessage(PLAYING_FAILED);
+                Log.e(TAG, "Not a vorbis header error received");
+                break;
+            case DecodeFeed.CORRUPT_SECONDARY_HEADER:
+                handler.sendEmptyMessage(PLAYING_FAILED);
+                Log.e(TAG, "Corrupt secondary header error received");
+                break;
+            case DecodeFeed.PREMATURE_END_OF_FILE:
+                handler.sendEmptyMessage(PLAYING_FAILED);
+                Log.e(TAG, "Premature end of file error received");
+                break;
         }
     }
 
@@ -459,16 +466,5 @@ public class VorbisPlayer implements Runnable {
      */
     public synchronized boolean isBuffering() {
         return currentState.get() == PlayerState.BUFFERING;
-    }
-
-    /**
-     * Sends a message code through the handler if one is provided
-     *
-     * @param code the code to send via the handler
-     */
-    private void sendMessageThroughHandler(int code) {
-        if (handler != null) {
-            handler.sendEmptyMessage(code);
-        }
     }
 }

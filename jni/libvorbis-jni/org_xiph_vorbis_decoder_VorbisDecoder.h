@@ -19,9 +19,6 @@ JNIEXPORT int JNICALL Java_org_xiph_vorbis_decoder_VorbisDecoder_startDecoding
 //Stops the vorbis data feed
 void stopDecodeFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* stopMethodId);
 
-//Throws an exception to the java layer with th specified error code and stops the decode feed
-void throwDecodeException(JNIEnv *env, const int code, jobject* vorbisDataFeed, jmethodID* stopMethodId);
-
 //Reads raw vorbis data from the jni callback
 int readVorbisDataFromVorbisDataFeed(JNIEnv *env, jobject* vorbisDataFeed, jmethodID* readVorbisDataMethodId, char* buffer, jbyteArray* jByteArrayReadBuffer);
 

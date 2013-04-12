@@ -22,7 +22,6 @@ public class VorbisDecoder {
      *
      * @param decodeFeed the custom decode feed
      * @return the result code
-     * @throws DecodeException thrown when there is a problem decoding the bitstream
      */
-    public static native int startDecoding(DecodeFeed decodeFeed) throws DecodeException;
+    public static native int startDecoding(DecodeFeed decodeFeed);
 }

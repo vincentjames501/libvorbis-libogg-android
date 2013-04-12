@@ -1,11 +1,11 @@
 package org.xiph.vorbis.recorder;
 
+import android.os.Handler;
 import android.os.Process;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.util.Log;
-import org.xiph.vorbis.encoder.EncodeException;
 import org.xiph.vorbis.encoder.EncodeFeed;
 import org.xiph.vorbis.encoder.VorbisEncoder;
 
@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The VorbisRecorder is responsible for receiving raw pcm data from the {@link AudioRecord} and feeding that data
- * to the naitive {@link VorbisEncoder}
+ * to the native {@link VorbisEncoder}
  * <p/>
  * This class is primarily intended as a demonstration of how to work with the JNI java interface {@link VorbisEncoder}
  * <p/>
@@ -28,6 +28,48 @@ import java.util.concurrent.atomic.AtomicReference;
  * Time: 12:47 PM
  */
 public class VorbisRecorder {
+    /**
+     * Vorbis recorder status flag to notify handler to start encoding
+     */
+    public static final int START_ENCODING = 1;
+
+    /**
+     * Vorbis recorder status flag to notify handler to that it has stopped encoding
+     */
+    public static final int STOP_ENCODING = 2;
+
+    /**
+     * Vorbis recorder status flag to notify handler that the recorder has finished successfully
+     */
+    public static final int FINISHED_SUCCESSFULLY = 0;
+
+    /**
+     * Vorbis recorder status flag to notify handler that the encoder has failed for an unknown reason
+     */
+    public static final int FAILED_FOR_UNKNOWN_REASON = -2;
+
+    /**
+     * Vorbis recorder status flag to notify handler that the encoder couldn't initialize an {@link AudioRecord}
+     */
+    public static final int UNSUPPORTED_AUDIO_TRACK_RECORD_PARAMETERS = -3;
+
+    /**
+     * Vorbis recorder status flag to notify handler that the encoder has failed to initialize properly
+     */
+    public static final int ERROR_INITIALIZING = -1;
+
+    /**
+     * Whether the recording will encode with a quality percent or average bitrate
+     */
+    private static enum RecordingType {
+        WITH_QUALITY, WITH_BITRATE
+    }
+
+    /**
+     * The record handler to post status updates to
+     */
+    private final Handler recordHandler;
+
     /**
      * The sample rate of the recorder
      */
@@ -44,10 +86,20 @@ public class VorbisRecorder {
     private float quality;
 
     /**
+     * The target encoding bitrate
+     */
+    private long bitrate;
+
+    /**
+     * Whether the recording will encode with a quality percent or average bitrate
+     */
+    private RecordingType recordingType;
+
+    /**
      * The state of the recorder
      */
     private static enum RecorderState {
-        RECORDING, STOPPED
+        RECORDING, STOPPED, STOPPING
     }
 
     /**
@@ -100,7 +152,7 @@ public class VorbisRecorder {
         @Override
         public long readPCMData(byte[] pcmDataBuffer, int amountToRead) {
             //If we are no longer recording, return 0 to let the native encoder know
-            if (isStopped()) {
+            if (isStopped() || isStopping()) {
                 return 0;
             }
 
@@ -124,7 +176,7 @@ public class VorbisRecorder {
         @Override
         public int writeVorbisData(byte[] vorbisData, int amountToWrite) {
             //If we have data to write and we are recording, write the data
-            if (vorbisData != null && amountToWrite > 0 && outputStream != null && isRecording()) {
+            if (vorbisData != null && amountToWrite > 0 && outputStream != null && !isStopped()) {
                 try {
                     //Write the data to the output stream
                     outputStream.write(vorbisData, 0, amountToWrite);
@@ -141,13 +193,16 @@ public class VorbisRecorder {
 
         @Override
         public void stop() {
-            if (isRecording()) {
+            recordHandler.sendEmptyMessage(STOP_ENCODING);
+
+            if (isRecording() || isStopping()) {
                 //Set our state to stopped
                 currentState.set(RecorderState.STOPPED);
 
                 //Close the output stream
                 if (outputStream != null) {
                     try {
+                        outputStream.flush();
                         outputStream.close();
                     } catch (IOException e) {
                         Log.e(TAG, "Failed to close output stream", e);
@@ -164,11 +219,26 @@ public class VorbisRecorder {
         }
 
         @Override
+        public void stopEncoding() {
+            if (isRecording()) {
+                //Set our state to stopped
+                currentState.set(RecorderState.STOPPING);
+            }
+        }
+
+        @Override
         public void start() {
             if (isStopped()) {
+                recordHandler.sendEmptyMessage(START_ENCODING);
+
                 //Creates the audio recorder
                 int channelConfiguration = numberOfChannels == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_IN_STEREO;
                 int bufferSize = AudioRecord.getMinBufferSize((int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT);
+
+                if(bufferSize < 0) {
+                    recordHandler.sendEmptyMessage(UNSUPPORTED_AUDIO_TRACK_RECORD_PARAMETERS);
+                }
+
                 audioRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, (int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
 
                 //Start recording
@@ -217,7 +287,7 @@ public class VorbisRecorder {
         @Override
         public long readPCMData(byte[] pcmDataBuffer, int amountToRead) {
             //If we are no longer recording, return 0 to let the native encoder know
-            if (isStopped()) {
+            if (isStopped() || isStopping()) {
                 return 0;
             }
 
@@ -241,7 +311,7 @@ public class VorbisRecorder {
         @Override
         public int writeVorbisData(byte[] vorbisData, int amountToWrite) {
             //If we have data to write and we are recording, write the data
-            if (vorbisData != null && amountToWrite > 0 && outputStream != null && isRecording()) {
+            if (vorbisData != null && amountToWrite > 0 && outputStream != null && !isStopped()) {
                 try {
                     //Write the data to the output stream
                     outputStream.write(vorbisData, 0, amountToWrite);
@@ -258,7 +328,9 @@ public class VorbisRecorder {
 
         @Override
         public void stop() {
-            if (isRecording()) {
+            recordHandler.sendEmptyMessage(STOP_ENCODING);
+
+            if (isRecording() || isStopping()) {
                 //Set our state to stopped
                 currentState.set(RecorderState.STOPPED);
 
@@ -282,8 +354,18 @@ public class VorbisRecorder {
         }
 
         @Override
+        public void stopEncoding() {
+            if (isRecording()) {
+                //Set our state to stopped
+                currentState.set(RecorderState.STOPPING);
+            }
+        }
+
+        @Override
         public void start() {
             if (isStopped()) {
+                recordHandler.sendEmptyMessage(START_ENCODING);
+
                 //Creates the audio recorder
                 int channelConfiguration = numberOfChannels == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_IN_STEREO;
                 int bufferSize = AudioRecord.getMinBufferSize((int) sampleRate, channelConfiguration, AudioFormat.ENCODING_PCM_16BIT);
@@ -299,9 +381,10 @@ public class VorbisRecorder {
     /**
      * Constructs a recorder that will record an ogg file
      *
-     * @param fileToSaveTo the file to save to
+     * @param fileToSaveTo  the file to save to
+     * @param recordHandler the handler for receiving status updates about the recording process
      */
-    public VorbisRecorder(File fileToSaveTo) {
+    public VorbisRecorder(File fileToSaveTo, Handler recordHandler) {
         if (fileToSaveTo == null) {
             throw new IllegalArgumentException("File to play must not be null.");
         }
@@ -312,32 +395,37 @@ public class VorbisRecorder {
         }
 
         this.encodeFeed = new FileEncodeFeed(fileToSaveTo);
+        this.recordHandler = recordHandler;
     }
 
     /**
      * Constructs a recorder that will record an ogg output stream
      *
      * @param streamToWriteTo the output stream to write the encoded information to
+     * @param recordHandler   the handler for receiving status updates about the recording process
      */
-    public VorbisRecorder(OutputStream streamToWriteTo) {
+    public VorbisRecorder(OutputStream streamToWriteTo, Handler recordHandler) {
         if (streamToWriteTo == null) {
             throw new IllegalArgumentException("File to play must not be null.");
         }
 
         this.encodeFeed = new OutputStreamEncodeFeed(streamToWriteTo);
+        this.recordHandler = recordHandler;
     }
 
     /**
      * Constructs a vorbis recorder with a custom {@link EncodeFeed}
      *
-     * @param encodeFeed the custom {@link EncodeFeed}
+     * @param encodeFeed    the custom {@link EncodeFeed}
+     * @param recordHandler the handler for receiving status updates about the recording process
      */
-    public VorbisRecorder(EncodeFeed encodeFeed) {
+    public VorbisRecorder(EncodeFeed encodeFeed, Handler recordHandler) {
         if (encodeFeed == null) {
             throw new IllegalArgumentException("Encode feed must not be null.");
         }
 
         this.encodeFeed = encodeFeed;
+        this.recordHandler = recordHandler;
     }
 
     /**
@@ -363,6 +451,37 @@ public class VorbisRecorder {
             this.sampleRate = sampleRate;
             this.numberOfChannels = numberOfChannels;
             this.quality = quality;
+            this.recordingType = RecordingType.WITH_QUALITY;
+
+            //Starts the recording process
+            new Thread(new AsyncEncoding()).start();
+        }
+    }
+
+    /**
+     * Starts the recording/encoding process
+     *
+     * @param sampleRate       the rate to sample the audio at, should be greater than <code>0</code>
+     * @param numberOfChannels the nubmer of channels, must only be <code>1/code> or <code>2</code>
+     * @param bitrate          the bitrate at which to encode, must be greater than <code>-0</code>
+     */
+    @SuppressWarnings("all")
+    public synchronized void start(long sampleRate, long numberOfChannels, long bitrate) {
+        if (isStopped()) {
+            if (numberOfChannels != 1 && numberOfChannels != 2) {
+                throw new IllegalArgumentException("Channels can only be one or two");
+            }
+            if (sampleRate <= 0) {
+                throw new IllegalArgumentException("Invalid sample rate, must be above 0");
+            }
+            if (bitrate <= 0) {
+                throw new IllegalArgumentException("Target bitrate must be greater than 0");
+            }
+
+            this.sampleRate = sampleRate;
+            this.numberOfChannels = numberOfChannels;
+            this.bitrate = bitrate;
+            this.recordingType = RecordingType.WITH_BITRATE;
 
             //Starts the recording process
             new Thread(new AsyncEncoding()).start();
@@ -373,7 +492,7 @@ public class VorbisRecorder {
      * Stops the audio recorder and notifies the {@link EncodeFeed}
      */
     public synchronized void stop() {
-        encodeFeed.stop();
+        encodeFeed.stopEncoding();
     }
 
     /**
@@ -383,18 +502,29 @@ public class VorbisRecorder {
         @Override
         public void run() {
             //Start the native encoder
-            try {
-                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
-                int result = VorbisEncoder.startEncoding(sampleRate, numberOfChannels, quality, encodeFeed);
-                if (result == EncodeFeed.SUCCESS) {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
+            int result = 0;
+            switch (recordingType) {
+                case WITH_BITRATE:
+                    result = VorbisEncoder.startEncodingWithBitrate(sampleRate, numberOfChannels, bitrate, encodeFeed);
+                    break;
+                case WITH_QUALITY:
+                    result = VorbisEncoder.startEncodingWithQuality(sampleRate, numberOfChannels, quality, encodeFeed);
+                    break;
+            }
+            switch (result) {
+                case EncodeFeed.SUCCESS:
                     Log.d(TAG, "Encoder successfully finished");
-                }
-            } catch (EncodeException e) {
-                switch (e.getErrorCode()) {
-                    case EncodeException.ERROR_INITIALIZING:
-                        Log.e(TAG, "There was an error initializing the native encoder");
-                        break;
-                }
+                    recordHandler.sendEmptyMessage(FINISHED_SUCCESSFULLY);
+                    break;
+                case EncodeFeed.ERROR_INITIALIZING:
+                    recordHandler.sendEmptyMessage(ERROR_INITIALIZING);
+                    Log.e(TAG, "There was an error initializing the native encoder");
+                    break;
+                default:
+                    recordHandler.sendEmptyMessage(FAILED_FOR_UNKNOWN_REASON);
+                    Log.e(TAG, "Encoder returned an unknown result code");
+                    break;
             }
         }
     }
@@ -415,5 +545,14 @@ public class VorbisRecorder {
      */
     public synchronized boolean isStopped() {
         return currentState.get() == RecorderState.STOPPED;
+    }
+
+    /**
+     * Checks whether the recording is currently stopping (not recording)
+     *
+     * @return <code>true</code> if stopping, <code>false</code> otherwise
+     */
+    public synchronized boolean isStopping() {
+        return currentState.get() == RecorderState.STOPPING;
     }
 }
