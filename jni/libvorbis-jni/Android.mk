@@ -4,7 +4,9 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE := vorbis-jni
 LOCAL_CFLAGS += -I$(LOCAL_PATH)/../include -fsigned-char
-LOCAL_CFLAGS += -march=armv6 -marm -mfloat-abi=softfp -mfpu=vfp
+ifeq ($(TARGET_ARCH),arm)
+	LOCAL_CFLAGS += -march=armv6 -marm -mfloat-abi=softfp -mfpu=vfp
+endif
 
 LOCAL_SHARED_LIBRARIES := libogg libvorbis
 
