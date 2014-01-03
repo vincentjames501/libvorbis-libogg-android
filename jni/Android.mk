@@ -6,6 +6,7 @@ include $(addprefix $(LOCAL_PATH)/, $(addsuffix /Android.mk, \
 	libogg \
 	libvorbis \
 	libvorbis-jni \
+	libvorbis-stream \
 ))
 
 
