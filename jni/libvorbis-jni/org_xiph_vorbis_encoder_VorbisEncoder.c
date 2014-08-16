@@ -231,7 +231,7 @@ int startEncoding(JNIEnv *env, jclass *cls_ptr, jlong *sampleRate_ptr, jlong *ch
         /* data to encode */
 
         /* expose the buffer to submit data */
-        float **buffer=vorbis_analysis_buffer(&vd,READ);
+        float **buffer=vorbis_analysis_buffer(&vd,bytes/(2*channels));
 
         /* uninterleave samples */
         int channel;
