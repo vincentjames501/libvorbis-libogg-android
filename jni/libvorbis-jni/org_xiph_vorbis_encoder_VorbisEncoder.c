@@ -61,6 +61,9 @@ int writeVorbisDataToEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmet
     //Call the write vorbis data method
     int amountWritten = (*env)->CallIntMethod(env, (*encoderDataFeed), (*writeVorbisDataMethodId), (*jByteArrayWriteBuffer), bytes);
 
+    // clean up
+    (*env)->DeleteLocalRef(env, jByteArray);
+
     //Return the amount that was actually written
     return amountWritten;
 }
