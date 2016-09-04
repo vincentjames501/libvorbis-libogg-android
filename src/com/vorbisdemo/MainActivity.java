@@ -9,11 +9,11 @@ import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import org.xiph.vorbis.player.VorbisPlayer;
 import org.xiph.vorbis.recorder.VorbisRecorder;
 
@@ -194,15 +194,14 @@ public class MainActivity extends Activity {
         encodingTypeRadioGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(RadioGroup radioGroup, int checkedId) {
-                switch (checkedId) {
-                    case R.id.with_bitrate:
-                        availableBitratesLayout.setVisibility(View.VISIBLE);
-                        availableQualitiesLayout.setVisibility(View.GONE);
-                        break;
-                    case R.id.with_quality:
-                        availableBitratesLayout.setVisibility(View.GONE);
-                        availableQualitiesLayout.setVisibility(View.VISIBLE);
-                        break;
+                if (checkedId == R.id.with_bitrate) {
+                    availableBitratesLayout.setVisibility(View.VISIBLE);
+                    availableQualitiesLayout.setVisibility(View.GONE);
+
+                } else if (checkedId == R.id.with_quality) {
+                    availableBitratesLayout.setVisibility(View.GONE);
+                    availableQualitiesLayout.setVisibility(View.VISIBLE);
+
                 }
             }
         });
@@ -228,15 +227,15 @@ public class MainActivity extends Activity {
             Long channels = (long) (chanelConfigSpinner.getSelectedItemPosition() + 1);
 
             //Start recording with selected encoding options
-            switch (encodingTypeRadioGroup.getCheckedRadioButtonId()) {
-                case R.id.with_bitrate:
-                    Long bitrate = Long.parseLong(bitrateSpinner.getSelectedItem().toString());
-                    vorbisRecorder.start(sampleRate, channels, bitrate);
-                    break;
-                case R.id.with_quality:
-                    Float quality = Float.parseFloat(qualitySpinner.getSelectedItem().toString());
-                    vorbisRecorder.start(sampleRate, channels, quality);
-                    break;
+            int i = encodingTypeRadioGroup.getCheckedRadioButtonId();
+            if (i == R.id.with_bitrate) {
+                Long bitrate = Long.parseLong(bitrateSpinner.getSelectedItem().toString());
+                vorbisRecorder.start(sampleRate, channels, bitrate);
+
+            } else if (i == R.id.with_quality) {
+                Float quality = Float.parseFloat(qualitySpinner.getSelectedItem().toString());
+                vorbisRecorder.start(sampleRate, channels, quality);
+
             }
         }
     }
@@ -269,7 +268,7 @@ public class MainActivity extends Activity {
                     vorbisPlayer = new VorbisPlayer(fileToPlay, playbackHandler);
                 } catch (FileNotFoundException e) {
                     Log.e(TAG, "Failed to find saveTo.ogg", e);
-                    Toast.makeText(this, "Failed to find file to play!", 2000).show();
+                    Toast.makeText(this, "Failed to find file to play!", Toast.LENGTH_SHORT).show();
                 }
             }
 
