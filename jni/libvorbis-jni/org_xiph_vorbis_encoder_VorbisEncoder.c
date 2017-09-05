@@ -51,7 +51,7 @@ int writeVorbisDataToEncoderDataFeed(JNIEnv *env, jobject* encoderDataFeed, jmet
 
     //No data to write, just exit
     if(bytes == 0) {
-        return;
+        return 0;
     }
 
     //Create and copy the contents of what we're writing to the java byte array
@@ -293,7 +293,6 @@ int startEncoding(JNIEnv *env, jclass *cls_ptr, jlong *sampleRate_ptr, jlong *ch
     stopEncodeFeed(env, &encoderDataFeed, &stopMethodId);
 
     //Clean up encode buffers
-    (*env)->DeleteLocalRef(env, jByteArrayBuffer);
     (*env)->DeleteLocalRef(env, jByteArrayWriteBuffer);
 
     return SUCCESS;
