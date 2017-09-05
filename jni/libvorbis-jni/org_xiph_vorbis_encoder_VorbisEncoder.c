@@ -292,6 +292,9 @@ int startEncoding(JNIEnv *env, jclass *cls_ptr, jlong *sampleRate_ptr, jlong *ch
     __android_log_print(ANDROID_LOG_INFO, "VorbisEncoder", "Completed encoding.");
     stopEncodeFeed(env, &encoderDataFeed, &stopMethodId);
 
+    //Clean up encode buffers
+    (*env)->DeleteLocalRef(env, jByteArrayWriteBuffer);
+
     return SUCCESS;
 }
 
