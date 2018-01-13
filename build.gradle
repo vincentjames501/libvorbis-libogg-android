@@ -1,9 +1,10 @@
 buildscript {
     repositories {
         jcenter()
+        google()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:2.1.3'
+        classpath 'com.android.tools.build:gradle:3.0.1'
     }
 }
 
@@ -19,6 +20,13 @@ android {
     defaultConfig {
         minSdkVersion 9
         targetSdkVersion project.hasProperty("defaultTargetSdkVersion") ? defaultTargetSdkVersion : 23
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard_libvorbis-libogg.cfg'
+        }
     }
 
     lintOptions { abortOnError false }
