@@ -4,22 +4,19 @@ buildscript {
         google()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.0.1'
+        classpath 'com.android.tools.build:gradle:3.1.1'
     }
 }
 
 apply plugin: 'com.android.library'
 
-dependencies {
-}
-
 android {
-    compileSdkVersion project.hasProperty("defaultCompileSdkVersion") ? defaultCompileSdkVersion : 23
-    buildToolsVersion project.hasProperty("defaultBuildToolsVersion") ? defaultBuildToolsVersion : "23.0.3"
+    compileSdkVersion project.hasProperty("defaultCompileSdkVersion") ? defaultCompileSdkVersion : 27
+    buildToolsVersion project.hasProperty("defaultBuildToolsVersion") ? defaultBuildToolsVersion : "27.0.3"
 
     defaultConfig {
         minSdkVersion 9
-        targetSdkVersion project.hasProperty("defaultTargetSdkVersion") ? defaultTargetSdkVersion : 23
+        targetSdkVersion project.hasProperty("defaultTargetSdkVersion") ? defaultTargetSdkVersion : 27
     }
 
     buildTypes {
@@ -41,7 +38,6 @@ android {
             res.srcDirs = ['res']
             assets.srcDirs = ['assets']
         }
-        instrumentTest.setRoot('tests')
     }
 }
 
