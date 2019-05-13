@@ -33,7 +33,7 @@ public class VorbisPlayer implements Runnable {
     /**
      * Playing state which can either be stopped, playing, or reading the header before playing
      */
-    private static enum PlayerState {
+    private enum PlayerState {
         PLAYING, STOPPED, READING_HEADER, BUFFERING
     }
 
@@ -70,7 +70,7 @@ public class VorbisPlayer implements Runnable {
     /**
      * Current state of the vorbis player
      */
-    private AtomicReference<PlayerState> currentState = new AtomicReference<PlayerState>(PlayerState.STOPPED);
+    private AtomicReference<PlayerState> currentState = new AtomicReference<>(PlayerState.STOPPED);
 
     /**
      * Custom class to easily decode from a file and write to an {@link AudioTrack}
